@@ -1,5 +1,8 @@
-import streamlit as st
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import streamlit as st
 from src.ingestion.youtube import fetch_youtube_transcript, download_audio, get_video_info
 from src.ingestion.transcribe import transcribe_audio
 from src.processing.summarize import summarize_text

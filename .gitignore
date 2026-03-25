@@ -47,6 +47,7 @@ data/
 *.wav
 *.m4a
 *.webm
+*.ogg
 
 # ======================
 # Logs
@@ -76,3 +77,4 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+coverage.xml

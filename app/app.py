@@ -13,16 +13,40 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
-from src.ingestion.youtube import fetch_youtube_transcript, download_audio, get_video_info
-from src.ingestion.transcribe import transcribe_audio
+from src.ingestion.youtube import get_video_info
 from src.processing.summarize import summarize_text
 from src.retrieval.rag import build_vector_store, generate_answer
+from config import AUDIO_CACHE_DIR
+from src.pipeline import process_youtube_pipeline, process_audio_pipeline
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import tempfile
-from gtts import gTTS
+from src.processing.tts import generate_tts_audio
 import base64
+
+def update_session_state(text, summary, metrics, source, model="bart-large-cnn"):
+    """Helper to commit a new transcript to session state and clear old caches."""
+    st.session_state["transcript"] = text
+    
+    # Clear stale RAG data
+    for key in ["rag_index", "rag_chunks", "qa_history"]:
+        if key in st.session_state:
+            del st.session_state[key]
+            
+    # Save isolated memory states for the active model
+    st.session_state[f"summary_bart"] = summary
+    st.session_state[f"summary_metrics_bart"] = metrics
+    
+    # Set active views
+    st.session_state["summary"] = summary
+    st.session_state["summary_metrics"] = metrics
+    st.session_state["source"] = source
+    st.session_state["current_model"] = model
+    
+    # Clear alternative model data when regenerating
+    if "summary_t5" in st.session_state: del st.session_state["summary_t5"]
+    if "summary_metrics_t5" in st.session_state: del st.session_state["summary_metrics_t5"]
 
 # Page Config
 st.set_page_config(
@@ -31,136 +55,9 @@ st.set_page_config(
 )
 
 # Custom CSS - FIXED: All text now visible in both light and dark modes
-st.markdown("""
-    <style>
-    /* Force all text to be visible */
-    .main-header {
-        text-align: center;
-        padding: 1rem 0;
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #ffffff !important;
-    }
-    .subtitle {
-        text-align: center;
-        color: #cccccc !important;
-        font-size: 1rem;
-        margin-bottom: 2rem;
-    }
-    .info-box {
-        background-color: #2b2b2b;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-        color: #ffffff !important;
-    }
-    .stats-box {
-        background-color: #1e3a5f;
-        padding: 0.5rem 1rem;
-        border-radius: 0.3rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #1f77b4;
-        color: #ffffff !important;
-    }
-    .success-box {
-        background-color: #1e4620;
-        padding: 0.5rem 1rem;
-        border-radius: 0.3rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #28a745;
-        color: #90ee90 !important;
-    }
-    .warning-box {
-        background-color: #4a3f1a;
-        padding: 0.5rem 1rem;
-        border-radius: 0.3rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #ffc107;
-        color: #ffe066 !important;
-    }
-    .error-box {
-        background-color: #4a1e1e;
-        padding: 0.5rem 1rem;
-        border-radius: 0.3rem;
-        margin: 0.5rem 0;
-        border-left: 4px solid #dc3545;
-        color: #ffb3b3 !important;
-    }
-    .model-badge {
-        display: inline-block;
-        padding: 0.25rem 0.75rem;
-        border-radius: 0.25rem;
-        font-size: 0.875rem;
-        font-weight: 600;
-        margin-right: 0.5rem;
-        font-family: monospace;
-    }
-    .badge-bart {
-        background-color: #1976d2;
-        color: #ffffff !important;
-        border: 1px solid #1976d2;
-    }
-    .badge-t5 {
-        background-color: #7b1fa2;
-        color: #ffffff !important;
-        border: 1px solid #7b1fa2;
-    }
-    .section-header {
-        font-weight: 600;
-        color: #ffffff !important;
-        margin-top: 1rem;
-        margin-bottom: 0.5rem;
-    }
-    
-    /* CRITICAL: Force all Streamlit text elements to be visible */
-    .stMarkdown, .stMarkdown p, .stMarkdown span {
-        color: #ffffff !important;
-    }
-    
-    /* Fix tab labels */
-    .stTabs [data-baseweb="tab"] {
-        color: #ffffff !important;
-    }
-    .stTabs [data-baseweb="tab"][aria-selected="true"] {
-        color: #1f77b4 !important;
-    }
-    
-    /* Fix all headers */
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, 
-    .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
-        color: #ffffff !important;
-    }
-    
-    /* Fix subheaders specifically */
-    [data-testid="stSubheader"] {
-        color: #ffffff !important;
-    }
-    
-    /* Fix metric labels and values */
-    [data-testid="stMetricLabel"] {
-        color: #cccccc !important;
-    }
-    [data-testid="stMetricValue"] {
-        color: #ffffff !important;
-    }
-    
-    /* Fix info boxes */
-    [data-testid="stInfo"] {
-        background-color: #1e3a5f !important;
-        color: #ffffff !important;
-    }
-    
-    /* Fix markdown text in info boxes */
-    [data-testid="stInfo"] .stMarkdown {
-        color: #ffffff !important;
-    }
-    
-    /* Fix all text in the app */
-    div[data-testid="stVerticalBlock"] > div {
-        color: #ffffff !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+css_path = os.path.join(os.path.dirname(__file__), "style.css")
+with open(css_path, "r") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 # Header
 st.markdown('<h1 class="main-header">Podcast Summarizer Pro</h1>', unsafe_allow_html=True)
@@ -268,71 +165,22 @@ with left_col:
                 st.error("Please enter a valid URL")
             else:
                 try:
-                    with st.spinner("Extracting transcript..."):
-                        text, source_type = fetch_youtube_transcript(url)
-
-                    if text is not None:
-                        if source_type == "manual":
-                            st.markdown('<div class="success-box">Using manual YouTube captions</div>', unsafe_allow_html=True)
-                            source = "YouTube Captions (Manual)"
-                        else:
-                            st.markdown('<div class="success-box">Using auto-generated YouTube captions</div>', unsafe_allow_html=True)
-                            source = "YouTube Captions (Auto-generated)"
+                    status_placeholder = st.empty()
+                    def ui_callback(msg):
+                        status_placeholder.info(msg)
                         
-                        if show_stats:
-                            word_count = len(text.split())
-                            char_count = len(text)
-                            st.markdown(f'<div class="stats-box">Transcript: {word_count:,} words, {char_count:,} characters</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="warning-box">No transcript available. Downloading audio for Whisper transcription...</div>', unsafe_allow_html=True)
-
-                        with st.spinner("Downloading audio..."):
-                            audio_path = download_audio(url)
+                    # Process entire pipeline purely from facade
+                    text, source, summary, metrics = process_youtube_pipeline(url, detail_level, ui_callback)
+                    
+                    status_placeholder.empty()
+                    
+                    if show_stats:
+                        word_count = len(text.split())
+                        st.markdown(f'<div class="stats-box">Transcript from {source}: {word_count:,} words</div>', unsafe_allow_html=True)
                         
-                        if not audio_path:
-                            st.markdown('<div class="error-box">Failed to download audio. Please verify the URL.</div>', unsafe_allow_html=True)
-                            st.stop()
 
-                        with st.spinner("Transcribing audio (this may take several minutes)..."):
-                            text = transcribe_audio(audio_path)
-
-                        source = "Whisper Transcription"
-                        
-                        if show_stats:
-                            word_count = len(text.split())
-                            st.markdown(f'<div class="stats-box">Transcript: {word_count:,} words</div>', unsafe_allow_html=True)
-
-                    with st.spinner("Generating summary with BART-large-CNN..."):
-                        summary, metrics = summarize_text(
-                            text, 
-                            detail_level=detail_level,
-                            model_name="bart-large-cnn",
-                            return_metrics=True
-                        )
-
-                    st.session_state["transcript"] = text
-                    
-                    # CRITICAL: Clear stale RAG data when new transcript is processed
-                    for key in ["rag_index", "rag_chunks", "qa_history"]:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    
-                    # CRITICAL FIX: Isolated memory states for BART
-                    st.session_state["summary_bart"] = summary
-                    st.session_state["summary_metrics_bart"] = metrics
-                    
-                    # Current active summary
-                    st.session_state["summary"] = summary
-                    st.session_state["summary_metrics"] = metrics
-                    st.session_state["source"] = source
-                    st.session_state["current_model"] = "bart-large-cnn"
-                    
-                    # Clear T5 data when regenerating BART
-                    if "summary_t5" in st.session_state:
-                        del st.session_state["summary_t5"]
-                    if "summary_metrics_t5" in st.session_state:
-                        del st.session_state["summary_metrics_t5"]
-                    
+                    # Use centralized commit function
+                    update_session_state(text, summary, metrics, source)
                     st.success("Processing complete")
                     
                 except Exception as e:
@@ -350,53 +198,29 @@ with left_col:
 
             if st.button("Process", type="primary", use_container_width=True):
                 try:
-                    os.makedirs("data/audio", exist_ok=True)
-                    file_path = f"data/audio/{uploaded_file.name}"
+                    os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
+                    file_path = os.path.join(AUDIO_CACHE_DIR, uploaded_file.name)
 
                     with open(file_path, "wb") as f:
                         f.write(uploaded_file.getbuffer())
 
                     st.success("File uploaded successfully")
 
-                    with st.spinner("Transcribing audio..."):
-                        text = transcribe_audio(file_path)
-                        source = "Whisper Transcription"
+                    status_placeholder = st.empty()
+                    def ui_callback(msg):
+                        status_placeholder.info(msg)
+
+                    # Process via facade
+                    text, source, summary, metrics = process_audio_pipeline(file_path, detail_level, ui_callback)
+                    
+                    status_placeholder.empty()
 
                     if show_stats:
                         word_count = len(text.split())
                         st.markdown(f'<div class="stats-box">Transcript: {word_count:,} words</div>', unsafe_allow_html=True)
 
-                    with st.spinner("Generating summary with BART-large-CNN..."):
-                        summary, metrics = summarize_text(
-                            text,
-                            detail_level=detail_level,
-                            model_name="bart-large-cnn",
-                            return_metrics=True
-                        )
-
-                    st.session_state["transcript"] = text
-
-                    # CRITICAL: Clear stale RAG data when new transcript is processed
-                    for key in ["rag_index", "rag_chunks", "qa_history"]:
-                        if key in st.session_state:
-                            del st.session_state[key]
-                    
-                    # CRITICAL FIX: Isolated memory states for BART
-                    st.session_state["summary_bart"] = summary
-                    st.session_state["summary_metrics_bart"] = metrics
-                    
-                    # Current active summary
-                    st.session_state["summary"] = summary
-                    st.session_state["summary_metrics"] = metrics
-                    st.session_state["source"] = source
-                    st.session_state["current_model"] = "bart-large-cnn"
-                    
-                    # Clear T5 data when regenerating BART
-                    if "summary_t5" in st.session_state:
-                        del st.session_state["summary_t5"]
-                    if "summary_metrics_t5" in st.session_state:
-                        del st.session_state["summary_metrics_t5"]
-                    
+                    # Use centralized commit function
+                    update_session_state(text, summary, metrics, source)
                     st.success("Processing complete")
                     
                 except Exception as e:
@@ -450,20 +274,8 @@ with right_col:
                 if st.button("Generate Audio", use_container_width=True, type="secondary"):
                     with st.spinner("Generating audio..."):
                         try:
-                            tts = gTTS(text=summary_text, lang='en', slow=False)
-                            
-                            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
-                                tts.save(fp.name)
-                                audio_path = fp.name
-                            
-                            with open(audio_path, 'rb') as audio_file:
-                                audio_bytes = audio_file.read()
-                            
-                            # CRITICAL FIX: Save audio with model-specific key
+                            audio_bytes = generate_tts_audio(summary_text)
                             st.session_state[f"audio_{current_model}"] = audio_bytes
-                            
-                            os.unlink(audio_path)
-                            
                             st.success("Audio generated")
                             st.rerun()
                             

@@ -2,6 +2,7 @@ import yt_dlp
 import os
 import tempfile
 import re
+from config import AUDIO_CACHE_DIR
 
 def fetch_youtube_transcript(url):
     """
@@ -116,10 +117,10 @@ def download_audio(url):
     Returns:
         str: Path to downloaded audio file
     """
-    output_path = "data/audio/yt_audio.%(ext)s"
+    output_path = f"{AUDIO_CACHE_DIR}/yt_audio.%(ext)s"
     
     # Ensure directory exists
-    os.makedirs("data/audio", exist_ok=True)
+    os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
     
     ydl_opts = {
         "format": "bestaudio/best",

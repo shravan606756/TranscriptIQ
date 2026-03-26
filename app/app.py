@@ -170,7 +170,8 @@ with left_col:
                         status_placeholder.info(msg)
                         
                     # Process entire pipeline purely from facade
-                    text, source, summary, metrics = process_youtube_pipeline(url, detail_level, ui_callback)
+                    with st.spinner("Processing..."):
+                        text, source, summary, metrics = process_youtube_pipeline(url, detail_level, ui_callback)
                     
                     status_placeholder.empty()
                     
@@ -211,7 +212,8 @@ with left_col:
                         status_placeholder.info(msg)
 
                     # Process via facade
-                    text, source, summary, metrics = process_audio_pipeline(file_path, detail_level, ui_callback)
+                    with st.spinner("Processing..."):
+                        text, source, summary, metrics = process_audio_pipeline(file_path, detail_level, ui_callback)
                     
                     status_placeholder.empty()
 
@@ -285,32 +287,37 @@ with right_col:
             with col3:
                 # Regenerate/Switch button
                 if current_model == "bart-large-cnn":
-                    if st.button("Regenerate with T5-base", use_container_width=True, type="secondary"):
-                        with st.spinner("Generating summary with T5-base..."):
-                            summary_t5, metrics_t5 = summarize_text(
-                                st.session_state["transcript"],
-                                detail_level=detail_level,
-                                model_name="t5-base",
-                                return_metrics=True
-                            )
-                            
-                            # CRITICAL FIX: Isolated memory states for T5
-                            st.session_state["summary_t5"] = summary_t5
-                            st.session_state["summary_metrics_t5"] = metrics_t5
-                            
-                            # Switch to T5 as active
-                            st.session_state["summary"] = summary_t5
-                            st.session_state["summary_metrics"] = metrics_t5
-                            st.session_state["current_model"] = "t5-base"
-                            
-                        st.success("Summary regenerated with T5-base")
-                        st.rerun()
+                    t5_cached = "summary_t5" in st.session_state
+                    btn_label = "Switch to T5-base" if t5_cached else "Regenerate with T5-base"
+                    if st.button(btn_label, use_container_width=True, type="secondary"):
+                        if t5_cached:
+                            # Just switch — no re-inference
+                            with st.spinner("Switching to T5-base..."):
+                                st.session_state["summary"] = st.session_state["summary_t5"]
+                                st.session_state["summary_metrics"] = st.session_state["summary_metrics_t5"]
+                                st.session_state["current_model"] = "t5-base"
+                            st.rerun()
+                        else:
+                            with st.spinner("Generating summary with T5-base..."):
+                                summary_t5, metrics_t5 = summarize_text(
+                                    st.session_state["transcript"],
+                                    detail_level=detail_level,
+                                    model_name="t5-base",
+                                    return_metrics=True
+                                )
+                                st.session_state["summary_t5"] = summary_t5
+                                st.session_state["summary_metrics_t5"] = metrics_t5
+                                st.session_state["summary"] = summary_t5
+                                st.session_state["summary_metrics"] = metrics_t5
+                                st.session_state["current_model"] = "t5-base"
+                            st.success("Summary generated with T5-base")
+                            st.rerun()
                 else:
                     if st.button("Switch to BART", use_container_width=True, type="secondary"):
-                        # CRITICAL FIX: Pull from isolated BART memory
-                        st.session_state["summary"] = st.session_state["summary_bart"]
-                        st.session_state["summary_metrics"] = st.session_state["summary_metrics_bart"]
-                        st.session_state["current_model"] = "bart-large-cnn"
+                        with st.spinner("Switching to BART..."):
+                            st.session_state["summary"] = st.session_state["summary_bart"]
+                            st.session_state["summary_metrics"] = st.session_state["summary_metrics_bart"]
+                            st.session_state["current_model"] = "bart-large-cnn"
                         st.rerun()
             
             # NEW: Audio Player (if audio exists for current model)
@@ -366,7 +373,7 @@ with right_col:
                 st.metric("Words", f"{summ_words:,}")
                 st.metric("Characters", f"{summ_chars:,}")
                 st.metric("Compression ratio", f"{compression_ratio:.1f}%")
-                reading_time = summ_words // 150 
+                reading_time = max(1, (summ_words + 149) // 150)
                 st.metric("Estimated reading time", f"{reading_time} min")
             
             st.markdown("**Length Comparison**")

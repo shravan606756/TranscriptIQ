@@ -37,3 +37,29 @@ T5_MAX_NEW_TOKENS = int(os.getenv("T5_MAX_NEW_TOKENS", 100))
 # Create directories if they don't exist
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
+
+# Base Directories
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+AUDIO_CACHE_DIR = os.path.join(DATA_DIR, "audio")
+
+# API Keys
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Models Configuration
+WHISPER_MODEL = "base"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+DEVICE = os.getenv("DEVICE", "cpu")
+
+# RAG & Chunking Hyperparameters
+RAG_TOP_K = 4
+RAG_CHUNK_SIZE = 350
+RAG_CHUNK_OVERLAP = 60
+
+# Summarizer Limits
+BART_MAX_INPUT_TOKENS = 1024
+T5_MAX_INPUT_TOKENS = 512

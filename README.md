@@ -245,7 +245,7 @@ Transformer summarization models impose a maximum context window constraint (typ
          |        |        |
          v        v        v
       +-----+  +-----+  +-----+
-      | Seg | | Seg |  | Seg |
+      | Seg |  | Seg |  | Seg |
       |  1  |  |  2  |  |  N  |
       +-----+  +-----+  +-----+
          |        |        |
@@ -297,7 +297,7 @@ Each text chunk is independently passed through the selected transformer model. 
       v                 v
 +-----+------+   +------+------+
 | Chunk Sum. |   | Chunk Sum.  |
-|  BART [i]  |   |   T5 [i]   |
+|  BART [i]  |   |   T5 [i]    |
 +-----+------+   +------+------+
       |                 |
       v                 v
@@ -307,7 +307,7 @@ Each text chunk is independently passed through the selected transformer model. 
 +-----+------+   +------+------+
       |                 |
       v                 v
-+-----+------+   +------+------+
++-----+------+   +------+-----+
 | Final BART |   | Final T5   |
 | Summary    |   | Summary    |
 | output     |   | output     |
@@ -364,7 +364,7 @@ The RAG subsystem indexes the full transcript into a FAISS vector store and supp
           v         v         v
 +--------------------------------------------+
 |  SentenceTransformer Embedding Model       |
-|  Model: all-MiniLM-L6-v2 (lazy-loaded)    |
+|  Model: all-MiniLM-L6-v2 (lazy-loaded)     |
 |  Output: 384-dim float32 numpy vectors     |
 +-------------------+------------------------+
                     |
@@ -385,17 +385,17 @@ The RAG subsystem indexes the full transcript into a FAISS vector store and supp
                     v
 +-------------------+------------------------+
 |  Query Embedding                           |
-|  (same all-MiniLM-L6-v2 encoder)          |
+|  (same all-MiniLM-L6-v2 encoder)           |
 |  Output: 384-dim float32 query vector      |
 +-------------------+------------------------+
                     |
                     v
 +-------------------+------------------------+
 |  FAISS index.search()                      |
-|  - top_k = 4 (answer generation)          |
-|  - top_k = 5 (search_transcript())        |
+|  - top_k = 4 (answer generation)           |
+|  - top_k = 5 (search_transcript())         |
 |  Returns: distances[], indices[]           |
-|  Relevance score = 1 / (1 + L2_distance)  |
+|  Relevance score = 1 / (1 + L2_distance)   |
 +-------------------+------------------------+
                     |
                     v
@@ -414,7 +414,7 @@ The RAG subsystem indexes the full transcript into a FAISS vector store and supp
 |                                            |
 |  System prompt:                            |
 |  "Answer from podcast transcript context   |
-|   only. If not found, say 'Not found'.    |
+|   only. If not found, say 'Not found'.     |
 |   Keep answers concise."                   |
 |                                            |
 |  User prompt:                              |
@@ -760,52 +760,30 @@ Metrics are rendered as interactive Plotly charts within the Streamlit interface
 
 ```
 audio-nlp-processing-pipeline/
-|
-+-- .github/
-|   +-- workflows/                  # GitHub Actions CI pipeline
-|
-+-- app/
-|   +-- (Streamlit entry point and UI logic)
-|
-+-- src/
-|   +-- retrieval/
-|   |   +-- rag.py                  # FAISS indexing, chunk retrieval, Groq answer synthesis
-|   +-- processing/
-|   |   +-- chunking.py             # Word-based text splitter (split_text)
-|   +-- (transcription, summarization modules)
-|
-+-- tests/
-|   +-- (pytest test suites with mock fixtures)
-|
-+-- config.py                       # Configuration constants (in progress)
-+-- requirements.txt                # Pinned Python dependencies
-+-- runtime.txt                     # Python runtime version specifier
-+-- pytest.ini                      # pytest configuration and test paths
-+-- .env                            # Local secrets (GROQ_API_KEY) — not committed
-+-- .gitignore
-|   +-- app.py                  # Main Streamlit entry point
-|
-+-- src/
-|   +-- ingestion/
-|   |   +-- youtube.py          # YouTube video/audio/transcript extraction
-|   |   +-- transcribe.py       # Whisper STT implementation
-|   +-- processing/
-|   |   +-- chunking.py         # Custom sentence-boundary text chunker
-|   |   +-- summarize.py        # BART and T5 summarization pipelines
-|   +-- retrieval/
-|   |   +-- rag.py              # FAISS indexing and Llama 3.3 QA engine
-|
-+-- tests/                      # Pytest unit tests
-|   +-- test_chunking.py
-|   +-- test_ingestion.py
-|   +-- test_rag.py
-|
-+-- config.py                   # Central configuration module
-+-- .env                        # Environment variables and API keys
-+-- pytest.ini                  # Pytest configuration
-+-- runtime.txt                 # Deployment runtime spec
-+-- requirements.txt
-+-- README.md
+├── app/
+│   ├── app.py              # Streamlit UI with 5 tabs
+│   ├── __init__.py
+│   └── style.css           # Custom styling
+├── src/
+│   ├── pipeline.py         # Main orchestration (facades)
+│   ├── ingestion/
+│   │   ├── youtube.py      # YouTube extraction & audio download
+│   │   ├── transcribe.py   # Whisper transcription
+│   │   └── __init__.py
+│   ├── processing/
+│   │   ├── summarize.py    # BART & T5 summarization
+│   │   ├── chunking.py     # Text segmentation
+│   │   ├── tts.py          # Text-to-speech
+│   │   └── __init__.py
+│   └── retrieval/
+│       ├── rag.py          # RAG with FAISS & Groq LLM
+│       └── __init__.py
+├── tests/                   # Pytest suite
+├── config.py               # Centralized configuration
+├── requirements.txt        # Dependencies
+├── runtime.txt             # Python version
+└── .github/workflows/
+    └── ci.yml              # GitHub Actions CI
 ```
 
 ---

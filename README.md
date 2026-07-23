@@ -1,149 +1,129 @@
 # Audio NLP Processing Pipeline
 
-A modular, end-to-end pipeline for automated speech transcription, semantic text segmentation, abstractive summarization via transformer inference, and retrieval-augmented generation (RAG) over audio content sourced from YouTube URLs or local file uploads.
+A multimodal inference pipeline that ingests heterogeneous audio sources — streaming URLs or raw file uploads — and transforms unstructured acoustic signal into structured, queryable knowledge through automatic speech recognition, comparative abstractive summarization, and retrieval-grounded generative question answering.
 
 ---
 
-## Table of Contents
+## Problem Statement
 
-- [System Architecture Overview](#system-architecture-overview)
-- [Module Breakdown](#module-breakdown)
-  - [Audio Ingestion and Extraction](#1-audio-ingestion-and-extraction)
-  - [Speech Recognition Engine](#2-speech-recognition-engine)
-  - [Text Segmentation and Chunking](#3-text-segmentation-and-chunking)
-  - [Summarization Pipeline](#4-summarization-pipeline)
-  - [Retrieval-Augmented Generation](#5-retrieval-augmented-generation-rag)
-- [Data Flow Diagram](#data-flow-diagram)
-- [Comparative Model Analysis](#comparative-model-analysis)
-- [Technology Stack and Dependencies](#technology-stack-and-dependencies)
-- [Environment Setup and Installation](#environment-setup-and-installation)
-- [Configuration Reference](#configuration-reference)
-- [Telemetry and Metrics](#telemetry-and-metrics)
+Long-form audio — podcasts, lectures, recorded interviews — encodes high-value information inside an inherently low-bandwidth modality: continuous speech. Extracting or verifying a single fact demands linear traversal of the entire recording; there is no random-access mechanism into spoken content. Naive summarization tools compound this problem by collapsing the source into a single unverifiable text artifact, severing the link between claim and evidence and foreclosing any follow-up interrogation of the material.
+
+## Solution
+
+This system decouples acquisition, transcription, and reasoning into independent, composable stages and exposes three capabilities against any ingested source:
+
+- **Automatic transcription** — speech is decoded into text via a transformer-based acoustic model, with existing transcripts short-circuited when available to avoid redundant computation.
+- **Comparative abstractive summarization** — two architecturally distinct transformer models process identical input in parallel and are benchmarked against quantitative metrics rather than judged subjectively.
+- **Retrieval-augmented generative Q&A** — natural language queries are answered by an LLM conditioned exclusively on semantically retrieved transcript passages, constraining generation to grounded evidence and suppressing hallucination.
+- **Speech synthesis** — generated summaries and answers can be rendered back into spoken audio via Google Text-to-Speech (gTTS), closing the loop from audio input to audio output.
 
 ---
 
-## System Architecture Overview
+## Architecture
 
-The system is organized into four discrete layers: **Ingestion**, **Processing**, **Modeling**, and **Presentation**. Each layer is stateless with respect to the others — data flows downstream via well-defined buffers and serialized text objects. The Streamlit presentation layer maintains isolated session state per model to enable side-by-side comparison of BART and T5 inference outputs.
+```mermaid
+---
+config:
+  layout: fixed
+---
+flowchart LR
+    %% Subgraph 1: Inputs
+    subgraph Inputs ["1. Input Sources"]
+        direction TB
+        A["YouTube URL"]
+        B["Audio File Upload"]
+    end
 
-```
-+-------------------------------------------------------------------------------------+
-|                          PRESENTATION LAYER (Streamlit)                             |
-|  Session State [BART]  |  Session State [T5]  |  RAG Query Interface                |
-+-------------|--------------------|-----------------------|---------------------------+
-              |                    |                       |
-              v                    v                       v
-+-------------------------------------------------------------------------------------+
-|                             DISPATCH / ORCHESTRATION                                |
-|          Validates source type, routes to ingestion module, manages state           |
-+-------------------------------------------------------------------------------------+
-              |
-     +--------+--------+
-     |                 |
-     v                 v
-+----------+     +------------+
-| yt-dlp   |     | Binary     |
-| Extractor|     | File Input |
-+----------+     +------------+
-     |                 |
-     +--------+--------+
-              |
-              v
-+-----------------------------+
-|   Audio Multiplexer /       |
-|   Format Normalization      |
-|   (16kHz mono WAV target)   |
-+-----------------------------+
-              |
-              v
-+-----------------------------+
-|  Whisper Transcription      |
-|  Engine (base variant)      |
-|  Mel-spectrogram + Attn     |
-+-----------------------------+
-              |
-              v
-+-----------------------------+
-|    Raw Text Transcript      |
-|    (UTF-8 string buffer)    |
-+-----------------------------+
-         |         |
-         |         +----------------------------------+
-         v                                            v
-+------------------+                      +---------------------+
-|  Segmentation /  |                      |  FAISS Vector Index |
-|  Chunking Module |                      |  (RAG Subsystem)    |
-+------------------+                      +---------------------+
-         |
-    +----+----+
-    |         |
-    v         v
-+-------+ +-------+
-| BART  | | T5    |
-| large | | base  |
-| CNN   | | 220M  |
-| 406M  | |       |
-+-------+ +-------+
-    |         |
-    v         v
-+-----------------------------+
-|   Structured Summary Output |
-|   + Compression Metrics     |
-+-----------------------------+
+    %% Subgraph 2: Transcription Pipeline
+    subgraph Transcription ["2. Audio & Transcription"]
+        direction TB
+        C{"Transcript<br>Available?"}
+        D["Use Existing Transcript"]
+        E["Download Audio"]
+        F["Normalize Audio<br>ffmpeg, 16kHz mono"]
+        G["Whisper ASR<br>Speech-to-Text"]
+        H["Final Transcript"]
+        
+        A --> C
+        C -- Yes --> D
+        C -- No --> E
+        B --> F
+        E --> F
+        F --> G
+        D --> H
+        G --> H
+    end
+
+    %% Subgraph 3: Processing & Routing
+    subgraph Processing ["3. Chunking & Routing"]
+        I["Chunk Transcript<br>Token-aware Segmentation"]
+        O["Split into Overlapping Chunks<br>350 words, 60 overlap"]
+        
+        H --> I
+        H --> O
+    end
+
+    %% Subgraph 4: Summarization Track
+    subgraph Summarization ["4. Summarization Models"]
+        direction TB
+        J["BART-large-CNN"]
+        K["T5-base"]
+        L["Summary - BART<br>Abstractive, Higher Accuracy"]
+        M["Summary - T5<br>Abstractive, Higher Compression"]
+        N["Model Comparison Tab<br>Time, Compression, Quality"]
+        
+        I --> J & K
+        J --> L
+        K --> M
+        L --> N
+        M --> N
+    end
+
+    %% Subgraph 5: RAG Track
+    subgraph RAG ["5. RAG & QA Pipeline"]
+        direction TB
+        P["SentenceTransformer Embeddings<br>all-MiniLM-L6-v2"]
+        Q[("FAISS Vector Index")]
+        R["User Question"]
+        S["Query Embedding"]
+        T["FAISS Similarity Search<br>Top-K Retrieval"]
+        U["Context Construction"]
+        V["Groq Llama 3.3 70B"]
+        W["Final Answer"]
+        
+        O --> P --> Q
+        R --> S --> T
+        Q --> T
+        T --> U --> V --> W
+    end
+
+    %% UI Output
+    X(("Streamlit UI<br>Transcript / Summary / Comparison / Q&amp;A"))
+
+    %% Connect tracks to UI
+    N --> X
+    W --> X
+    H --> X
 ```
 
 ---
 
-## Module Breakdown
+## Multimodal Architecture
 
-### 1. Audio Ingestion and Extraction
+The pipeline fuses two distinct modalities — raw acoustic signal and derived natural-language text — into a single reasoning substrate. Audio is decoded through a mel-spectrogram-driven encoder-decoder transformer (Whisper) and projected into UTF-8 text; that text is subsequently re-encoded into dense vector space via a Sentence-Transformer model for semantic retrieval, and independently routed into sequence-to-sequence summarization models. The system therefore executes three distinct model families across two modalities — acoustic-to-text, text-to-text summarization, and text-to-vector embedding — and reconciles their outputs behind a unified interface, rather than treating audio as a single-purpose input to one downstream model.
 
-The ingestion module normalizes two distinct input pathways into a unified audio buffer suitable for downstream Whisper inference.
+## Data Acquisition Layer
 
-**YouTube URL Path:**  
-The `yt-dlp` extractor resolves the URL, fetches stream metadata, and downloads the highest-quality audio track. The output is post-processed via `ffmpeg` to normalize the sample rate to 16 kHz mono PCM, which is the required input format for Whisper.
+Acquisition is engineered as a fault-tolerant, source-agnostic front end rather than a thin file-loader:
 
-**Local Upload Path:**  
-Binary audio data submitted via the Streamlit file uploader is buffered in memory and passed through the same normalization step.
+- **Dual-pathway ingestion** — a streaming extractor (`yt-dlp`) resolves and downloads audio directly from URLs, while a parallel binary-upload path accepts arbitrary local files; both converge into a single normalization contract.
+- **Transcript short-circuiting** — where a platform-native transcript already exists, the pipeline bypasses ASR entirely, eliminating unnecessary GPU/CPU cycles and reducing end-to-end latency.
+- **Format normalization** — heterogeneous containers (`.mp3`, `.mp4`, `.wav`, `.m4a`, `.webm`, `.ogg`) are coerced through `ffmpeg` into a canonical 16 kHz mono float32 PCM representation, guaranteeing a deterministic input contract for the ASR stage regardless of source codec or sample rate.
+- **Stateless, cache-isolated execution** — intermediate audio artifacts are staged through a configurable temporary cache directory, decoupling ingestion throughput from downstream model inference and permitting horizontal scaling of the acquisition tier independent of the modeling tier.
 
-```
-+--------------------+           +--------------------+
-|   YouTube URL      |           |  Local File Upload |
-|   (HTTP input)     |           |  (.mp3/.wav/.m4a)  |
-+--------+-----------+           +---------+----------+
-         |                                 |
-         v                                 v
-+--------+-----------+           +---------+----------+
-|  URL Validation    |           |   MIME Type        |
-|  + Sanitization    |           |   Detection        |
-+--------+-----------+           +---------+----------+
-         |                                 |
-         v                                 |
-+--------+-----------+                     |
-|  yt-dlp Core       |                     |
-|  - Format selector |                     |
-|  - Metadata fetch  |                     |
-|  - Stream download |                     |
-|  - Temp file cache |                     |
-+--------+-----------+                     |
-         |                                 |
-         +----------------+----------------+
-                          |
-                          v
-              +-----------+----------+
-              |  Audio Multiplexer   |
-              |  ffmpeg normalization|
-              |  -> 16kHz, mono, WAV |
-              +-----------+----------+
-                          |
-                          v
-              +-----------+----------+
-              |  Byte Buffer /       |
-              |  NumPy Float32 Array |
-              |  (Whisper-compatible)|
-              +----------------------+
-```
+## Technical Highlights
 
+<<<<<<< HEAD
 **Key parameters:**
 - Output format: 16000 Hz sample rate, mono channel, float32 PCM
 - Temporary cache path: configurable via environment variable `AUDIO_CACHE_DIR`
@@ -506,253 +486,45 @@ Inference   Dense vectors
 ```
 
 ---
+=======
+- **Native ASR implementation** — audio is decoded through Whisper's convolutional feature encoder and autoregressive cross-attention decoder, not delegated to a third-party transcription API.
+- **Empirical model benchmarking** — BART-large-CNN and T5-base are evaluated head-to-head on identical input, quantified via compression ratio, wall-clock inference latency, and sentence-count delta, yielding a reproducible comparative framework rather than a single opaque output.
+- **Evidence-grounded generation** — FAISS-indexed dense retrieval constrains the LLM's context window to top-k semantically relevant passages before invoking Llama 3.3 70B via Groq, architecturally suppressing unconstrained hallucination.
+- **Production-grade engineering discipline** — externalized configuration (`.env` / `config.py`), a pytest suite with fully mocked external dependencies, coverage instrumentation, static linting, and a GitHub Actions CI pipeline gating every commit.
+>>>>>>> b8462dd (updated readme)
 
 ## Comparative Model Analysis
+
+Both BART-large-CNN and T5-base are **abstractive** summarizers: they generate novel phrasing conditioned on the source text rather than performing **extractive** summarization, which would simply select and concatenate existing sentences verbatim. This distinction matters — abstractive models can compress and rephrase for readability but carry higher risk of paraphrastic drift, which is precisely why the pipeline benchmarks them empirically rather than trusting either output blindly.
 
 | Property | BART-large-CNN | T5-base |
 |---|---|---|
 | Parameters | 406M | 220M |
-| Architecture | Seq2Seq (BERT encoder + GPT decoder) | Unified text-to-text transformer |
-| Pre-training | Denoising autoencoder on books + Wikipedia | C4 corpus (masked span prediction) |
-| Fine-tuning dataset | CNN / DailyMail | CNN / DailyMail + multi-task mixture |
+| Summarization type | Abstractive (extractive-leaning, high lexical fidelity) | Abstractive (highly compressive, aggressive rephrasing) |
+| Fine-tuning corpus | CNN / DailyMail | C4 with summarization prefix prompting |
 | Max input tokens | 1024 | 512 |
-| Max output tokens | ~150 (configurable) | ~100 (configurable) |
 | Compression ratio | 60-75% | 85-95% |
-| Output style | Extractive-leaning abstractive | Highly abstractive, aggressive compression |
-| Inference latency (CPU, ~500 token input) | ~8-14 seconds | ~3-6 seconds |
-| Memory footprint | ~1.6 GB | ~880 MB |
-| Decoding strategy | Beam search (num_beams=4) | Greedy or beam (num_beams=2) |
-| Prompt format | Raw text | "summarize: " prefix |
+| Decoding strategy | Beam search (num_beams=4) | Greedy / beam (num_beams=2) |
 
-Telemetry collected per inference run includes: character-level input/output footprint, sentence count before and after compression, wall-clock inference time, and a computed differential matrix when both models are run on the same input.
+The application surfaces this comparison directly in a dedicated **Model Comparison** view, reporting compression ratio, inference latency, and sentence-count delta side by side for the same input — turning model selection into a data-driven decision rather than a fixed default.
 
----
+## Research Gap
 
-## Technology Stack and Dependencies
-
-```
-Application Layer
-+----------------------------------+
-|  Streamlit (UI framework)        |
-+----------------------------------+
-
-Machine Learning / Inference
-+----------------------------------+
-|  PyTorch (LibTorch runtime)      |
-|  HuggingFace Transformers 4.41.2 |
-|  - BART-large-CNN                |
-|  - T5-base                       |
-|  sentencepiece (tokenizer)       |
-|  accelerate (device dispatch)    |
-|  Sentence Transformers           |
-+----------------------------------+
-
-Audio Processing
-+----------------------------------+
-|  OpenAI Whisper (base)           |
-|  gTTS (Google Text-to-Speech)    |
-|  yt-dlp (YouTube extraction)     |
-|  youtube-transcript-api          |
-|  ffmpeg (format normalization)   |
-+----------------------------------+
-
-Vector Search / RAG
-+----------------------------------+
-|  faiss-cpu (similarity search)   |
-|  FAISS (Facebook AI Similarity   |
-|         Search)                  |
-|  Groq API (Llama 3.3 LLM for QA) |
-+----------------------------------+
-
-LLM / Groq Integration
-+----------------------------------+
-|  Groq API                        |
-|  - Model: llama-3.3-70b-versatile|
-|  - OpenAI-compatible SDK client  |
-|  - base_url: api.groq.com/openai |
-|  openai (SDK, used as Groq client|
-|  python-dotenv (GROQ_API_KEY)    |
-+----------------------------------+
-
-Testing and CI
-+----------------------------------+
-|  pytest                          |
-|  pytest-cov (coverage reports)   |
-|  pytest-mock (mocking fixtures)  |
-|  flake8 (linting)                |
-|  GitHub Actions (CI workflow)    |
-+----------------------------------+
-
-Runtime
-+----------------------------------+
-|  Python 3.10+ (see runtime.txt)  |
-|  pip / virtualenv                |
-+----------------------------------+
-```
-
-### Pinned Dependencies (from `requirements.txt`)
-
-```
-streamlit
-openai-whisper
-transformers==4.41.2
-torch
-yt-dlp
-sentencepiece
-accelerate
-youtube-transcript-api
-sentence-transformers
-faiss-cpu
-gTTS
-pytest
-pytest-cov
-pytest-mock
-flake8
-python-dotenv
-openai
-```
-
-Note: `transformers` is pinned at `4.41.2` due to compatibility constraints with the BART and T5 pipeline interfaces used. Upgrading this version without testing may break inference behavior.
+The majority of transcript-summarization systems commit to a single model and treat its output as ground truth, obscuring the compression-versus-fidelity-versus-latency trade-off inherent to abstractive summarization. This pipeline instead instruments two architecturally divergent models under identical experimental conditions, exposing that trade-off empirically rather than asserting it. Layering a retrieval-grounded Q&A subsystem atop this comparative framework further demonstrates a hybrid reasoning strategy — abstractive compression for global context, dense retrieval for verifiable, localized fact recovery — rather than overloading a single paradigm to serve both objectives.
 
 ---
 
-## Environment Setup and Installation
+## Tech Stack
 
-### Prerequisites
-
-- Python 3.10 or higher (strictly required)
-- `ffmpeg` installed and available on system `PATH`
-- Groq API Key (required for Q&A functionality)
-- CUDA-capable GPU (optional; CPU inference is supported but slower)
-
-### Step-by-step Installation
-
-**1. Clone the repository**
-
-```bash
-git clone https://github.com/shravan606756/audio-nlp-processing-pipeline.git
-cd audio-nlp-processing-pipeline
-```
-
-**2. Create and activate a virtual environment**
-
-```bash
-python3.10 -m venv venv
-source venv/bin/activate        # Linux / macOS
-venv\Scripts\activate           # Windows
-```
-
-**3. Install Python dependencies**
-
-```bash
-pip install -r requirements.txt
-```
-
-**4. Configure Environment Variables**
-
-Create a `.env` file in the root directory:
-```bash
-echo "GROQ_API_KEY=your_actual_key_here" > .env
-echo "PYTHONPATH=." >> .env
-```
-
-**5. Verify ffmpeg availability**
-
-```bash
-ffmpeg -version
-```
-
-If `ffmpeg` is not installed, install via system package manager:
-
-```bash
-# Debian / Ubuntu
-sudo apt install ffmpeg
-
-# macOS (Homebrew)
-brew install ffmpeg
-
-# Windows (via Chocolatey)
-choco install ffmpeg
-```
-
-**6. (Optional) Verify CUDA / GPU availability**
-
-```bash
-python -c "import torch; print(torch.cuda.is_available())"
-```
-
-If `True`, inference will utilize GPU automatically. Set `DEVICE=cpu` in the environment to force CPU execution.
-
-**7. Launch the application**
-
-```bash
-streamlit run app/app.py
-```
-
-The application will be available at `http://localhost:8501` by default.
-
----
-
-## Configuration Reference
-
-Key hyperparameters can be adjusted via `.env` and `config.py` at the project root:
-
-| Parameter | Default | Description |
-|---|---|---|
-| `GROQ_API_KEY` | None | API Key for Groq Llama 3.3 (required for Q&A) |
-| `WHISPER_MODEL` | `base` | Whisper model size: `tiny`, `base`, `small`, `medium`, `large` |
-| `BART_MAX_INPUT_TOKENS` | `1024` | Maximum token length per chunk for BART |
-| `T5_MAX_INPUT_TOKENS` | `512` | Maximum token length per chunk for T5 |
-| `BART_MAX_NEW_TOKENS` | `150` | Maximum generation length for BART output |
-| `T5_MAX_NEW_TOKENS` | `100` | Maximum generation length for T5 output |
-| `RAG_CHUNK_MAX_WORDS` | `350` | Maximum words per RAG chunk (word-based splitter) |
-| `RAG_CHUNK_OVERLAP` | `60` | Word overlap between consecutive RAG chunks |
-| `RAG_TOP_K_ANSWER` | `4` | Top-k chunks retrieved for answer generation |
-| `RAG_TOP_K_SEARCH` | `5` | Top-k chunks retrieved for transcript search |
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model for FAISS embeddings |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Groq LLM used for RAG answer synthesis |
-| `GROQ_TEMPERATURE` | `0.3` | Sampling temperature for Groq inference |
-| `GROQ_API_KEY` | (required, from `.env`) | Groq API key loaded via `python-dotenv` |
-| `DEVICE` | `auto` | Inference device for Whisper/transformers: `auto`, `cpu`, `cuda` |
-| `CHUNK_OVERLAP` | `60` | Word overlap between RAG text splits |
-| `RAG_CHUNK_SIZE`| `350` | Maximum words per chunk for RAG indexing |
-| `RAG_TOP_K` | `4` | Number of nearest neighbor passages retrieved |
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model for RAG embeddings |
-| `DEVICE` | `auto` | Inference device: `auto`, `cpu`, `cuda` |
-| `AUDIO_CACHE_DIR` | `/tmp/audio_cache` | Temporary directory for downloaded audio files |
-
----
-
-## Telemetry and Metrics
-
-The application captures and displays the following analytical metrics per inference session:
-
-```
-+--------------------------------------+
-|  Per-Model Telemetry Record          |
-|                                      |
-|  - model_name       (str)            |
-|  - input_char_count (int)            |
-|  - output_char_count(int)            |
-|  - compression_ratio(float, %)       |
-|  - sentence_count_in (int)           |
-|  - sentence_count_out(int)           |
-|  - inference_time_s (float)          |
-|  - num_chunks       (int)            |
-|  - avg_tokens_per_chunk (float)      |
-+--------------------------------------+
-
-+--------------------------------------+
-|  Differential Matrix (BART vs T5)    |
-|                                      |
-|  - delta_compression_ratio (float)   |
-|  - delta_inference_time    (float)   |
-|  - delta_output_chars      (int)     |
-|  - delta_sentence_count    (int)     |
-+--------------------------------------+
-```
-
-Metrics are rendered as interactive Plotly charts within the Streamlit interface and are also available as exportable Pandas DataFrames for downstream analysis.
+| Layer | Components |
+|---|---|
+| Interface | Streamlit |
+| Acquisition | yt-dlp, ffmpeg |
+| Speech-to-text | OpenAI Whisper (encoder-decoder transformer) |
+| Summarization | BART-large-CNN, T5-base (HuggingFace Transformers) |
+| Retrieval / Generation | Sentence-Transformers, FAISS, Groq API (Llama 3.3 70B) |
+| Speech synthesis | gTTS (Google Text-to-Speech) |
+| Testing / CI | pytest, pytest-cov, flake8, GitHub Actions |
 
 ---
 
@@ -760,6 +532,7 @@ Metrics are rendered as interactive Plotly charts within the Streamlit interface
 
 ```
 audio-nlp-processing-pipeline/
+<<<<<<< HEAD
 ├── app/
 │   ├── app.py              # Streamlit UI with 5 tabs
 │   ├── __init__.py
@@ -784,33 +557,57 @@ audio-nlp-processing-pipeline/
 ├── runtime.txt             # Python version
 └── .github/workflows/
     └── ci.yml              # GitHub Actions CI
+=======
+├── .github/
+│   └── workflows/               # GitHub Actions CI pipeline (test + lint on push/PR)
+├── app/
+│   └── app.py                   # Streamlit entry point and UI orchestration
+├── src/
+│   ├── ingestion/
+│   │   ├── youtube.py           # yt-dlp extraction, transcript short-circuiting
+│   │   └── transcribe.py        # Whisper ASR implementation
+│   ├── processing/
+│   │   ├── chunking.py          # Token-aware and word-based text splitters
+│   │   └── summarize.py         # BART / T5 abstractive summarization pipelines
+│   └── retrieval/
+│       └── rag.py               # FAISS indexing, retrieval, Groq-based QA synthesis
+├── tests/
+│   ├── test_chunking.py
+│   ├── test_ingestion.py
+│   └── test_rag.py
+├── config.py                    # Centralized configuration (models, tokens, thresholds)
+├── requirements.txt              # Pinned dependencies
+├── runtime.txt                   # Python runtime specifier
+├── pytest.ini                    # Test discovery and coverage configuration
+├── .env                          # Local secrets (GROQ_API_KEY) — not committed
+└── README.md
+>>>>>>> b8462dd (updated readme)
 ```
+
+---
+
+## Setup
+
+```bash
+git clone https://github.com/shravan606756/audio-nlp-processing-pipeline.git
+cd audio-nlp-processing-pipeline
+python3.10 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+echo "GROQ_API_KEY=your_key_here" > .env
+streamlit run app/app.py
+```
+
+Requirements: Python 3.10+, `ffmpeg` on system PATH, and a Groq API key for Q&A functionality.
 
 ---
 
 ## Testing
 
-The project includes a full pytest-based test suite with coverage reporting and mock fixtures for all external dependencies (Whisper, HuggingFace pipelines, yt-dlp, FAISS).
-
-**Run all tests:**
-
-```bash
-pytest
-```
-
-**Run with coverage report:**
-
 ```bash
 pytest --cov=src --cov-report=term-missing
 ```
 
-**Run linting:**
-
-```bash
-flake8 src/ app/ tests/
-```
-
-The `.github/workflows/` directory contains a CI pipeline that automatically runs tests and linting on each push and pull request to `main`.
+The suite mocks all external dependencies (Whisper, HuggingFace pipelines, yt-dlp, FAISS) and executes automatically via CI on every push and pull request.
 
 ---
 

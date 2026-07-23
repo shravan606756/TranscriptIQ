@@ -1,21 +1,21 @@
 # TranscriptIQ
 
-A multimodal inference pipeline that ingests heterogeneous audio sources — streaming URLs or raw file uploads — and transforms unstructured acoustic signal into structured, queryable knowledge through automatic speech recognition, comparative abstractive summarization, and retrieval-grounded generative question answering.
+A multimodal inference pipeline that ingests heterogeneous audio sources  streaming URLs or raw file uploads and transforms unstructured acoustic signal into structured, queryable knowledge through automatic speech recognition, comparative abstractive summarization, and retrieval-grounded generative question answering.
 
 ---
 
 ## Problem Statement
 
-Long-form audio — podcasts, lectures, recorded interviews — encodes high-value information inside an inherently low-bandwidth modality: continuous speech. Extracting or verifying a single fact demands linear traversal of the entire recording; there is no random-access mechanism into spoken content. Naive summarization tools compound this problem by collapsing the source into a single unverifiable text artifact, severing the link between claim and evidence and foreclosing any follow-up interrogation of the material.
+Long-form audio podcasts, lectures, recorded interviews encodes high-value information inside an inherently low-bandwidth modality: continuous speech. Extracting or verifying a single fact demands linear traversal of the entire recording; there is no random-access mechanism into spoken content. Naive summarization tools compound this problem by collapsing the source into a single unverifiable text artifact, severing the link between claim and evidence and foreclosing any follow-up interrogation of the material.
 
 ## Solution
 
 This system decouples acquisition, transcription, and reasoning into independent, composable stages and exposes three capabilities against any ingested source:
 
-- **Automatic transcription** — speech is decoded into text via a transformer-based acoustic model, with existing transcripts short-circuited when available to avoid redundant computation.
-- **Comparative abstractive summarization** — two architecturally distinct transformer models process identical input in parallel and are benchmarked against quantitative metrics rather than judged subjectively.
-- **Retrieval-augmented generative Q&A** — natural language queries are answered by an LLM conditioned exclusively on semantically retrieved transcript passages, constraining generation to grounded evidence and suppressing hallucination.
-- **Speech synthesis** — generated summaries and answers can be rendered back into spoken audio via Google Text-to-Speech (gTTS), closing the loop from audio input to audio output.
+- **Automatic transcription** - speech is decoded into text via a transformer-based acoustic model, with existing transcripts short-circuited when available to avoid redundant computation.
+- **Comparative abstractive summarization** - two architecturally distinct transformer models process identical input in parallel and are benchmarked against quantitative metrics rather than judged subjectively.
+- **Retrieval-augmented generative Q&A** - natural language queries are answered by an LLM conditioned exclusively on semantically retrieved transcript passages, constraining generation to grounded evidence and suppressing hallucination.
+- **Speech synthesis** - generated summaries and answers can be rendered back into spoken audio via Google Text-to-Speech (gTTS), closing the loop from audio input to audio output.
 
 ---
 
@@ -110,23 +110,23 @@ flowchart LR
 
 ## Multimodal Architecture
 
-The pipeline fuses two distinct modalities — raw acoustic signal and derived natural-language text — into a single reasoning substrate. Audio is decoded through a mel-spectrogram-driven encoder-decoder transformer (Whisper) and projected into UTF-8 text; that text is subsequently re-encoded into dense vector space via a Sentence-Transformer model for semantic retrieval, and independently routed into sequence-to-sequence summarization models. The system therefore executes three distinct model families across two modalities — acoustic-to-text, text-to-text summarization, and text-to-vector embedding — and reconciles their outputs behind a unified interface, rather than treating audio as a single-purpose input to one downstream model.
+The pipeline fuses two distinct modalities - raw acoustic signal and derived natural-language text - into a single reasoning substrate. Audio is decoded through a mel-spectrogram-driven encoder-decoder transformer (Whisper) and projected into UTF-8 text; that text is subsequently re-encoded into dense vector space via a Sentence-Transformer model for semantic retrieval, and independently routed into sequence-to-sequence summarization models. The system therefore executes three distinct model families across two modalities - acoustic-to-text, text-to-text summarization, and text-to-vector embedding — and reconciles their outputs behind a unified interface, rather than treating audio as a single-purpose input to one downstream model.
 
 ## Data Acquisition Layer
 
 Acquisition is engineered as a fault-tolerant, source-agnostic front end rather than a thin file-loader:
 
-- **Dual-pathway ingestion** — a streaming extractor (`yt-dlp`) resolves and downloads audio directly from URLs, while a parallel binary-upload path accepts arbitrary local files; both converge into a single normalization contract.
-- **Transcript short-circuiting** — where a platform-native transcript already exists, the pipeline bypasses ASR entirely, eliminating unnecessary GPU/CPU cycles and reducing end-to-end latency.
-- **Format normalization** — heterogeneous containers (`.mp3`, `.mp4`, `.wav`, `.m4a`, `.webm`, `.ogg`) are coerced through `ffmpeg` into a canonical 16 kHz mono float32 PCM representation, guaranteeing a deterministic input contract for the ASR stage regardless of source codec or sample rate.
-- **Stateless, cache-isolated execution** — intermediate audio artifacts are staged through a configurable temporary cache directory, decoupling ingestion throughput from downstream model inference and permitting horizontal scaling of the acquisition tier independent of the modeling tier.
+- **Dual-pathway ingestion** - a streaming extractor (`yt-dlp`) resolves and downloads audio directly from URLs, while a parallel binary-upload path accepts arbitrary local files; both converge into a single normalization contract.
+- **Transcript short-circuiting** - where a platform-native transcript already exists, the pipeline bypasses ASR entirely, eliminating unnecessary GPU/CPU cycles and reducing end-to-end latency.
+- **Format normalization** - heterogeneous containers (`.mp3`, `.mp4`, `.wav`, `.m4a`, `.webm`, `.ogg`) are coerced through `ffmpeg` into a canonical 16 kHz mono float32 PCM representation, guaranteeing a deterministic input contract for the ASR stage regardless of source codec or sample rate.
+- **Stateless, cache-isolated execution** - intermediate audio artifacts are staged through a configurable temporary cache directory, decoupling ingestion throughput from downstream model inference and permitting horizontal scaling of the acquisition tier independent of the modeling tier.
 
 ## Technical Highlights
 
-- **Native ASR implementation** — audio is decoded through Whisper's convolutional feature encoder and autoregressive cross-attention decoder, not delegated to a third-party transcription API.
-- **Empirical model benchmarking** — BART-large-CNN and T5-base are evaluated head-to-head on identical input, quantified via compression ratio, wall-clock inference latency, and sentence-count delta, yielding a reproducible comparative framework rather than a single opaque output.
-- **Evidence-grounded generation** — FAISS-indexed dense retrieval constrains the LLM's context window to top-k semantically relevant passages before invoking Llama 3.3 70B via Groq, architecturally suppressing unconstrained hallucination.
-- **Production-grade engineering discipline** — externalized configuration (`.env` / `config.py`), a pytest suite with fully mocked external dependencies, coverage instrumentation, static linting, and a GitHub Actions CI pipeline gating every commit.
+- **Native ASR implementation** - audio is decoded through Whisper's convolutional feature encoder and autoregressive cross-attention decoder, not delegated to a third-party transcription API.
+- **Empirical model benchmarking** - BART-large-CNN and T5-base are evaluated head-to-head on identical input, quantified via compression ratio, wall-clock inference latency, and sentence-count delta, yielding a reproducible comparative framework rather than a single opaque output.
+- **Evidence-grounded generation** - FAISS-indexed dense retrieval constrains the LLM's context window to top-k semantically relevant passages before invoking Llama 3.3 70B via Groq, architecturally suppressing unconstrained hallucination.
+- **Production-grade engineering discipline** - externalized configuration (`.env` / `config.py`), a pytest suite with fully mocked external dependencies, coverage instrumentation, static linting, and a GitHub Actions CI pipeline gating every commit.
 
 ## Comparative Model Analysis
 
@@ -167,32 +167,6 @@ The majority of transcript-summarization systems commit to a single model and tr
 
 ```
 audio-nlp-processing-pipeline/
-<<<<<<< HEAD
-├── app/
-│   ├── app.py              # Streamlit UI with 5 tabs
-│   ├── __init__.py
-│   └── style.css           # Custom styling
-├── src/
-│   ├── pipeline.py         # Main orchestration (facades)
-│   ├── ingestion/
-│   │   ├── youtube.py      # YouTube extraction & audio download
-│   │   ├── transcribe.py   # Whisper transcription
-│   │   └── __init__.py
-│   ├── processing/
-│   │   ├── summarize.py    # BART & T5 summarization
-│   │   ├── chunking.py     # Text segmentation
-│   │   ├── tts.py          # Text-to-speech
-│   │   └── __init__.py
-│   └── retrieval/
-│       ├── rag.py          # RAG with FAISS & Groq LLM
-│       └── __init__.py
-├── tests/                   # Pytest suite
-├── config.py               # Centralized configuration
-├── requirements.txt        # Dependencies
-├── runtime.txt             # Python version
-└── .github/workflows/
-    └── ci.yml              # GitHub Actions CI
-=======
 ├── .github/
 │   └── workflows/               # GitHub Actions CI pipeline (test + lint on push/PR)
 ├── app/
@@ -216,7 +190,7 @@ audio-nlp-processing-pipeline/
 ├── pytest.ini                    # Test discovery and coverage configuration
 ├── .env                          # Local secrets (GROQ_API_KEY) — not committed
 └── README.md
->>>>>>> b8462dd (updated readme)
+
 ```
 
 ---

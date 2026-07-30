@@ -1,6 +1,6 @@
 streamlit
 openai-whisper
-transformers==4.41.2
+transformers==5.5.0
 torch
 yt-dlp
 sentencepiece

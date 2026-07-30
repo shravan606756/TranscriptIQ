@@ -26,86 +26,123 @@ This system decouples acquisition, transcription, and reasoning into independent
 config:
   layout: fixed
 ---
-flowchart LR
-    %% Subgraph 1: Inputs
-    subgraph Inputs ["1. Input Sources"]
+flowchart TD
+    %% Define Node Styles (Rectangles with transparent backgrounds and colored borders)
+    classDef uiStyle fill:transparent,stroke:#8e24aa,stroke-width:3px,color:inherit,shape:rect
+    classDef ingestionStyle fill:transparent,stroke:#00acc1,stroke-width:3px,color:inherit,shape:rect
+    classDef transcriptionStyle fill:transparent,stroke:#43a047,stroke-width:3px,color:inherit,shape:rect
+    classDef processingStyle fill:transparent,stroke:#fbc02d,stroke-width:3px,color:inherit,shape:rect
+    classDef summarizationStyle fill:transparent,stroke:#e53935,stroke-width:3px,color:inherit,shape:rect
+    classDef ragStyle fill:transparent,stroke:#1e88e5,stroke-width:3px,color:inherit,shape:rect
+    classDef ttsStyle fill:transparent,stroke:#546e7a,stroke-width:3px,color:inherit,shape:rect
+
+    %% Subgraph 1: User Interface Layer
+    subgraph UI ["Streamlit Web Interface"]
+        direction LR
+        U1["Input Forms<br>(URL / File)"]:::uiStyle
+        U2["Summary & Metrics<br>Display"]:::uiStyle
+        U3["Model Comparison<br>View"]:::uiStyle
+        U4["Interactive Q&A<br>Chat Interface"]:::uiStyle
+        U5["Audio Player<br>(TTS Playback)"]:::uiStyle
+    end
+
+    %% Subgraph 2: Ingestion & Normalization Layer
+    subgraph Ingestion ["Data Acquisition & Preprocessing"]
         direction TB
-        A["YouTube URL"]
-        B["Audio File Upload"]
+        I1["Input Mode"]:::ingestionStyle
+        
+        %% YouTube Path
+        I2["YouTube URL"]:::ingestionStyle
+        I4["Transcript Exists?<br>(youtube-transcript-api)"]:::ingestionStyle
+        I3["yt-dlp<br>(Extract Audio Stream)"]:::ingestionStyle
+        
+        %% Local Path
+        I5["Audio File Upload<br>(mp3, wav, m4a, webm, ogg)"]:::ingestionStyle
+        
+        %% Normalization
+        I6["ffmpeg<br>(Normalize to 16kHz Mono float32 PCM)"]:::ingestionStyle
+        
+        I1 -- "URL" --> I2
+        I1 -- "File Upload" --> I5
+        I2 --> I4
+        I4 -- "No" --> I3
+        I3 --> I6
+        I5 --> I6
     end
 
-    %% Subgraph 2: Transcription Pipeline
-    subgraph Transcription ["2. Audio & Transcription"]
+    %% Subgraph 3: Transcription Layer
+    subgraph Transcription ["Transcription Engine"]
+        T1["OpenAI Whisper (base model)<br>Encoder-Decoder Transformer"]:::transcriptionStyle
+        T2["Final Combined Transcript"]:::transcriptionStyle
+        
+        I6 --> T1
+        T1 --> T2
+        I4 -- "Yes (Short-circuit)" --> T2
+    end
+
+    %% Subgraph 4: Processing Layer
+    subgraph Processing ["Text Segmentation & Chunking"]
+        P1["Token-aware Segmentation<br>(350 words, 60 word overlap)"]:::processingStyle
+        
+        T2 --> P1
+    end
+
+    %% Subgraph 5: Summarization Layer
+    subgraph Summarization ["Comparative Summarization Models (HuggingFace)"]
         direction TB
-        C{"Transcript<br>Available?"}
-        D["Use Existing Transcript"]
-        E["Download Audio"]
-        F["Normalize Audio<br>ffmpeg, 16kHz mono"]
-        G["Whisper ASR<br>Speech-to-Text"]
-        H["Final Transcript"]
+        S1["BART-large-CNN<br>(406M Params, Abstractive)"]:::summarizationStyle
+        S2["T5-base<br>(220M Params, Abstractive)"]:::summarizationStyle
+        S3["BART Summary<br>(60-75% compression)"]:::summarizationStyle
+        S4["T5 Summary<br>(85-95% compression)"]:::summarizationStyle
         
-        A --> C
-        C -- Yes --> D
-        C -- No --> E
-        B --> F
-        E --> F
-        F --> G
-        D --> H
-        G --> H
+        P1 --> S1 & S2
+        S1 --> S3
+        S2 --> S4
     end
 
-    %% Subgraph 3: Processing & Routing
-    subgraph Processing ["3. Chunking & Routing"]
-        I["Chunk Transcript<br>Token-aware Segmentation"]
-        O["Split into Overlapping Chunks<br>350 words, 60 overlap"]
-        
-        H --> I
-        H --> O
-    end
-
-    %% Subgraph 4: Summarization Track
-    subgraph Summarization ["4. Summarization Models"]
+    %% Subgraph 6: RAG & QA Layer
+    subgraph RAG ["Retrieval-Augmented Generation (RAG) Pipeline"]
         direction TB
-        J["BART-large-CNN"]
-        K["T5-base"]
-        L["Summary - BART<br>Abstractive, Higher Accuracy"]
-        M["Summary - T5<br>Abstractive, Higher Compression"]
-        N["Model Comparison Tab<br>Time, Compression, Quality"]
+        R1["SentenceTransformers<br>(all-MiniLM-L6-v2)"]:::ragStyle
+        R2["FAISS<br>Vector Index"]:::ragStyle
+        R3["User Query"]:::ragStyle
+        R4["Query Embedding"]:::ragStyle
+        R5["Semantic Similarity Search<br>(Top-K Retrieval)"]:::ragStyle
+        R6["Groq API<br>(Llama 3.3 70B LLM)"]:::ragStyle
+        R7["Evidence-Grounded Answer"]:::ragStyle
         
-        I --> J & K
-        J --> L
-        K --> M
-        L --> N
-        M --> N
+        P1 --> R1
+        R1 --> R2
+        R3 --> R4
+        R4 --> R5
+        R2 --> R5
+        R5 --> R6
+        R6 --> R7
     end
 
-    %% Subgraph 5: RAG Track
-    subgraph RAG ["5. RAG & QA Pipeline"]
-        direction TB
-        P["SentenceTransformer Embeddings<br>all-MiniLM-L6-v2"]
-        Q[("FAISS Vector Index")]
-        R["User Question"]
-        S["Query Embedding"]
-        T["FAISS Similarity Search<br>Top-K Retrieval"]
-        U["Context Construction"]
-        V["Groq Llama 3.3 70B"]
-        W["Final Answer"]
+    %% Subgraph 7: Speech Synthesis Layer
+    subgraph TTS ["Speech Synthesis"]
+        TTS1["Google Text-to-Speech<br>(gTTS)"]:::ttsStyle
+        TTS2["Generated MP3 Audio Summary"]:::ttsStyle
         
-        O --> P --> Q
-        R --> S --> T
-        Q --> T
-        T --> U --> V --> W
+        S3 --> TTS1
+        S4 --> TTS1
+        TTS1 --> TTS2
     end
 
-    %% UI Output
-    X(("Streamlit UI<br>Transcript / Summary / Comparison / Q&amp;A"))
+    %% Interconnections between Subgraphs and UI
+    U1 --> I1
+    S3 --> U2
+    S4 --> U2
+    S3 --> U3
+    S4 --> U3
+    R7 --> U4
+    TTS2 --> U5
+    
+    %% UI to components interactions
+    R3 -.-> U4
 
-    %% Connect tracks to UI
-    N --> X
-    W --> X
-    H --> X
 ```
-
 ---
 
 ## Multimodal Architecture

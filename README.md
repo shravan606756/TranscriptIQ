@@ -22,23 +22,19 @@ This system decouples acquisition, transcription, and reasoning into independent
 ## Architecture
 
 ```mermaid
----
-config:
-  layout: fixed
----
-flowchart TD
+flowchart LR
     %% Define Node Styles (Rectangles with transparent backgrounds and colored borders)
-    classDef uiStyle fill:transparent,stroke:#8e24aa,stroke-width:3px,color:inherit,shape:rect
-    classDef ingestionStyle fill:transparent,stroke:#00acc1,stroke-width:3px,color:inherit,shape:rect
-    classDef transcriptionStyle fill:transparent,stroke:#43a047,stroke-width:3px,color:inherit,shape:rect
-    classDef processingStyle fill:transparent,stroke:#fbc02d,stroke-width:3px,color:inherit,shape:rect
-    classDef summarizationStyle fill:transparent,stroke:#e53935,stroke-width:3px,color:inherit,shape:rect
-    classDef ragStyle fill:transparent,stroke:#1e88e5,stroke-width:3px,color:inherit,shape:rect
-    classDef ttsStyle fill:transparent,stroke:#546e7a,stroke-width:3px,color:inherit,shape:rect
+    classDef uiStyle fill:transparent,stroke:#8e24aa,stroke-width:2px,color:inherit
+    classDef ingestionStyle fill:transparent,stroke:#00acc1,stroke-width:2px,color:inherit
+    classDef transcriptionStyle fill:transparent,stroke:#43a047,stroke-width:2px,color:inherit
+    classDef processingStyle fill:transparent,stroke:#fbc02d,stroke-width:2px,color:inherit
+    classDef summarizationStyle fill:transparent,stroke:#e53935,stroke-width:2px,color:inherit
+    classDef ragStyle fill:transparent,stroke:#1e88e5,stroke-width:2px,color:inherit
+    classDef ttsStyle fill:transparent,stroke:#546e7a,stroke-width:2px,color:inherit
 
     %% Subgraph 1: User Interface Layer
     subgraph UI ["Streamlit Web Interface"]
-        direction LR
+        direction TB
         U1["Input Forms<br>(URL / File)"]:::uiStyle
         U2["Summary & Metrics<br>Display"]:::uiStyle
         U3["Model Comparison<br>View"]:::uiStyle
@@ -50,18 +46,18 @@ flowchart TD
     subgraph Ingestion ["Data Acquisition & Preprocessing"]
         direction TB
         I1["Input Mode"]:::ingestionStyle
-        
+
         %% YouTube Path
         I2["YouTube URL"]:::ingestionStyle
         I4["Transcript Exists?<br>(youtube-transcript-api)"]:::ingestionStyle
         I3["yt-dlp<br>(Extract Audio Stream)"]:::ingestionStyle
-        
+
         %% Local Path
         I5["Audio File Upload<br>(mp3, wav, m4a, webm, ogg)"]:::ingestionStyle
-        
+
         %% Normalization
         I6["ffmpeg<br>(Normalize to 16kHz Mono float32 PCM)"]:::ingestionStyle
-        
+
         I1 -- "URL" --> I2
         I1 -- "File Upload" --> I5
         I2 --> I4
@@ -72,9 +68,10 @@ flowchart TD
 
     %% Subgraph 3: Transcription Layer
     subgraph Transcription ["Transcription Engine"]
+        direction TB
         T1["OpenAI Whisper (base model)<br>Encoder-Decoder Transformer"]:::transcriptionStyle
         T2["Final Combined Transcript"]:::transcriptionStyle
-        
+
         I6 --> T1
         T1 --> T2
         I4 -- "Yes (Short-circuit)" --> T2
@@ -82,8 +79,9 @@ flowchart TD
 
     %% Subgraph 4: Processing Layer
     subgraph Processing ["Text Segmentation & Chunking"]
+        direction TB
         P1["Token-aware Segmentation<br>(350 words, 60 word overlap)"]:::processingStyle
-        
+
         T2 --> P1
     end
 
@@ -94,7 +92,7 @@ flowchart TD
         S2["T5-base<br>(220M Params, Abstractive)"]:::summarizationStyle
         S3["BART Summary<br>(60-75% compression)"]:::summarizationStyle
         S4["T5 Summary<br>(85-95% compression)"]:::summarizationStyle
-        
+
         P1 --> S1 & S2
         S1 --> S3
         S2 --> S4
@@ -110,7 +108,7 @@ flowchart TD
         R5["Semantic Similarity Search<br>(Top-K Retrieval)"]:::ragStyle
         R6["Groq API<br>(Llama 3.3 70B LLM)"]:::ragStyle
         R7["Evidence-Grounded Answer"]:::ragStyle
-        
+
         P1 --> R1
         R1 --> R2
         R3 --> R4
@@ -122,9 +120,10 @@ flowchart TD
 
     %% Subgraph 7: Speech Synthesis Layer
     subgraph TTS ["Speech Synthesis"]
+        direction TB
         TTS1["Google Text-to-Speech<br>(gTTS)"]:::ttsStyle
         TTS2["Generated MP3 Audio Summary"]:::ttsStyle
-        
+
         S3 --> TTS1
         S4 --> TTS1
         TTS1 --> TTS2
@@ -138,11 +137,11 @@ flowchart TD
     S4 --> U3
     R7 --> U4
     TTS2 --> U5
-    
+
     %% UI to components interactions
     R3 -.-> U4
-
 ```
+
 ---
 
 ## Multimodal Architecture
